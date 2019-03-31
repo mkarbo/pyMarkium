@@ -18,10 +18,33 @@ def trim_tex(im):
 
 
 class md_textool:
-    """
+    """ Used to prepare markdown documents with LaTeX code for upload to medium.
+
     A class serving to take a markdown file (.md) and convert all tagged chunks of LaTeX code into images and insert these as images in a new copy of the markdown document replacing the LaTeX code.
+
+    Attributes
+    ----------
+    md_path : str
+        Path to a markdown document to be reformatted for medium upload.
+    latex_tag : str
+        The snippet specifying where LaTeX code snippets are located in the markdown document pointed to by `md_path`.
+    content : str
+       A string of all the lines in the document pointed to by `md_path`, joined with '\\n'.
+    tex_snips : list
+        List of all LaTeX snips found between pairs of `latex_tag`
+    new_content : str
+        The modified Markdown document.
+
     """
     def __init__(self, md_path='', latex_tag='[LATEX]'):
+        """The initialization method
+
+        Sets up the converter.
+
+        Example
+        ------
+        >>> x = md_tex2img(md_path = 'foo.md', latex_tag = '<bartag>')
+        """
         self.md_path = md_path
         self.latex_tag = latex_tag
         content = ''
@@ -31,7 +54,7 @@ class md_textool:
                 content = ''.join([content, line])
         self.content = content
         self.tag_length = len(self.latex_tag)
-        self.n_snips = 0  # will be updated
+        self.n_snips = 0
         self.has_tex = False
         self.tex_snips = []
         self.tex_replace = '[LATEX_SNIP]'
@@ -44,6 +67,28 @@ class md_textool:
         self.new_content = ''
 
     def find_texsnips(self):
+        """finds all snips between `latex_tag`
+        
+        Searches for pairs of ```latex_tag```, saves text between them and replaces the tag between them (tags included) with the `self.tex_replace` value.
+
+        Example
+        -------
+        >>> print(open('foo.md', 'r').read())
+        foo
+        [LATEX]
+        $$
+        f(x) = g(x)
+        $$
+        [LATEX]
+        bar
+        >>> x = md_tex2img(md_path = 'foo.md', latex_tag = '<bartag>')
+        >>> x.find_texsnips()
+        >>> print(x.new_content)
+        foo
+        [LATEX_SNIP]
+        bar
+
+        """
         tex_snips = []
         content = self.content
         tag = self.latex_tag
@@ -69,6 +114,19 @@ class md_textool:
             self.has_tex = True
 
     def snip_to_texdoc(self, folder_path='fig/'):
+        """Creates a .tex doc per snippet
+
+        To each found LaTeX snippets, `snip_to_texdoc` creates a temporary .tex document with the snippet.
+
+        Intended to be run in succession of other functions.
+
+        Parameters
+        ----------
+
+        folder_path : str
+            path to where the .tex documents will be created.
+
+        """
         snips = self.tex_snips
         file_start = os.linesep.join(['\\documentclass{article}', '\\usepackage{amsmath}', '\\begin{document}', ''])
         file_end = os.linesep + '\\end{document}'
@@ -82,23 +140,26 @@ class md_textool:
                 self.tex_paths.append(out_path)
 
     def tex_to_pdf(self, tex_path, out_path=''):
-        """
-        A function which compiles .tex documents into pdfs
-        -----------
-        Parameters:
-            - tex_path(str): a path to a .tex file
-            - out_path(str): a path to the output pdf
-                * If none are provided, it will output to tex_pad.__prefix__.pdf
-        ----------
-        Dependencies:
-            - pdflatex: The compiling happens through pdflatex via subprocessing.
+        """Converts LaTeX documents to PDF documents
 
+        A function which compiles .tex documents into pdfs through subprocesses calling ``pdflatex``. If ``pdflatex`` is not found, it will fail.
 
+        Parameters
         ----------
-        Example:
-            tex_to_pdf('foo.tex')
-            >>$pdflatex -jobname=foo foo.tex
-            >>['foo.pdf']
+        tex_path : str
+            a path to a .tex file
+        out_path : str
+            a path to the output pdf
+
+        Note
+        ----
+        If no ``out_path`` is provided, output will be written to it will output to ``tex_path.pdf`` (without .tex extension).
+
+        Example
+        -------
+            >>> tex_to_pdf('foo.tex')
+            user$ pdflatex -jobname=foo foo.tex
+            ['foo.pdf']
         """
         print(tex_path)
         if out_path == '':
@@ -151,6 +212,12 @@ class md_textool:
             print('file not found :\n--- {}'.format(tex_path))
 
     def convert_all_tex_to_pdf(self):
+        """converts all .tex documents to pdfs.
+        
+        Loops through all .tex documents of ``tex_paths`` attribute and calls ``self.tex_to_pdf`` to compile them into .pdf documents. 
+
+        Saves failed compilation indexes.
+        """
         for i, path in enumerate(self.tex_paths):
             print(path)
             output = self.tex_to_pdf(path)
@@ -161,6 +228,10 @@ class md_textool:
                 self.bad_convert_idx.append(i)
 
     def convert_pdfs_to_im(self):
+        """Converts pdfs to .png files
+        
+        Converts all pdfs to .png images by calling pdf2image's convert_from_path, and crop the created image to only contain rendered math.
+        """
         pdf_paths = self.converted_pdf_paths
         pdf_paths_idx = self.converted_pdf_paths_idx
         for i, path in zip(pdf_paths_idx, pdf_paths):
@@ -173,6 +244,30 @@ class md_textool:
             self.image_paths_idx.append(i)
 
     def insert_images_in_md(self):
+        """ adds markdown link to math-images.
+        
+        Search-and-replace for placeholder tag ``'[LATEX_SNIP]'`` in  ``self.new_content`` and replaces it with a markdown link to associated .png file in fig/ folder.
+
+        Example
+        -------
+        >>> print(open('foo.md','r').read())
+        foo
+        $$
+        f(x) = g(x)
+        $$
+        bar
+        >>> x = md_tex2img('foo.md')
+        ...
+        >>> print(x.new_content)
+        foo
+        [LATEX_SNIP]
+        bar
+        >>> x.insert_images_in_md()
+        >>> print(x.new_content)
+        foo
+        ![1](fig/1.png)
+        bar
+        """
         content = self.new_content
         for i, snip in enumerate(self.tex_snips):
             if i not in self.bad_convert_idx:
@@ -186,12 +281,18 @@ class md_textool:
         self.new_content = content
 
     def save_new_md(self):
+        """save new markdown file
+        Saves the modified markdown document as `filename + _medium + .md`.
+        """
         with open(self.md_path.split('.')[0] + '_medium.md', 'w+') as f:
             f.write(self.new_content)
             self.new_md_path = self.md_path.split('.')[0] + '_medium.md'
         print('new markdown file generated at\n---{}'.format(self.new_md_path))
     
     def clean_figfolder(self):
+        """ removes temp files
+        Cleans up fig/ folder for temporary pdfs.
+        """
         files = os.listdir('fig/')
         print(files)
         files = [f for f in files if f.split('.')[-1].lower() != 'png']
@@ -201,9 +302,34 @@ class md_textool:
             os.remove(f)
 
     def restart(self):
+        """refits class
+        If you changed something in your markdown doc and have your python session open from earlier, use this to reset the class.
+        """
         self.__init__(md_path=self.md_path, latex_tag=self.latex_tag)
 
     def main(self):
+        """Converts markdown document for medium publishing
+
+        The main method which finds all LaTeX snippets and  converts them to .png's and insert markdown imagelinks in the markdown file and saves it as a new copy with the _medium.md extension.
+
+        Example
+        -------
+        >>> print(open('foo.md', 'r').read())
+        foo
+        [LATEX]
+        $$
+        f(x) = g(x)
+        $$
+        [LATEX]
+        bar
+        >>> x = md_tex2img(md_path = 'foo.md', latex_tag = '<bartag>')
+        >>> x.main()
+        ...
+        >>> print(open('foo_medium.md', 'r').read())
+        foo
+        ![1](fig/1.png)
+        bar
+        """
         self.find_texsnips()
         self.snip_to_texdoc()
         self.convert_all_tex_to_pdf()
